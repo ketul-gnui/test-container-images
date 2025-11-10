@@ -1,0 +1,67 @@
+#!/bin/sh
+
+while test $# -gt 0
+do
+case $1 in
+# Normal option processing
+    -a | --account)
+    AWS_ACCOUNT=$2
+    shift
+    ;;
+    -r | --role)
+    ROLE_NAME=$2
+    shift
+    ;;
+    -d | --duration)
+    DURATION=$2
+    shift
+    ;;
+    -d=* | --duration=*)
+    DURATION=${1#*=}
+    shift
+    ;;
+    
+# Special cases
+    --)
+    break
+    ;;
+    --*)
+    echo "Invalid option: $1" >&2
+    # error unknown (long) option $1
+    ;;
+    -?)
+    echo "Invalid option: $1" >&2
+    # error unknown (short) option $1
+    ;;
+# Done with options
+    *)
+    break
+    ;;
+esac
+
+shift
+done
+
+if [ -z "$AWS_ACCOUNT" ]; then
+    echo "account must be specified"
+    exit 1
+fi
+
+if [ -z "$ROLE_NAME" ]; then
+    echo "role must be specified"
+    exit 1
+fi
+
+ROLE=arn:aws:iam::$AWS_ACCOUNT:role/$ROLE_NAME
+
+if [ -n "$DURATION" ]; then
+    echo "Assuming role '$ROLE' with session duration '$DURATION' seconds"
+    AWS_CREDS=$(aws sts assume-role --role-arn $ROLE --role-session-name AssumeSession --output json --duration-seconds $DURATION)
+else
+    echo "Assuming role '$ROLE' with session duration '3600' seconds"
+    AWS_CREDS=$(aws sts assume-role --role-arn $ROLE --role-session-name AssumeSession --output json)
+fi
+aws configure set aws_access_key_id $(echo "$AWS_CREDS" | jq '.Credentials.AccessKeyId?' -r)
+aws configure set aws_secret_access_key $(echo "$AWS_CREDS" | jq '.Credentials.SecretAccessKey?' -r)
+aws configure set aws_session_token $(echo "$AWS_CREDS" | jq '.Credentials.SessionToken?' -r)
+aws configure set region $(echo "${AWS_REGION:-eu-central-1}")
