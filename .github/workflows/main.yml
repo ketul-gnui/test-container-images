@@ -38,7 +38,7 @@ jobs:
           echo "tag=$TAG" >> $GITHUB_OUTPUT
 
       - name: Build Image with Kaniko
-        uses: aevea/action-kaniko@v1
+        uses: aevea/action-kaniko@v0.14.0
         with:
           registry: ghcr.io
           image: ${{ github.repository }}
@@ -69,7 +69,7 @@ jobs:
           format: 'table'
           exit-code: '1'
           ignore-unfixed: true
-          vuln-type: 'os,library'
+          vuln-type: 'os, library'
 
   dependency-scan:
     name: Dependency Scan
