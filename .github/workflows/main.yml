@@ -1,80 +1,80 @@
-name: Build and Scan Container
+name: Container Build and Scan
 
 on:
   push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
+    branches:
+      - '**'
 
 env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+  AWS_CLI_VERSION: 2.11.0
+  AWS_CDK_NPM_VERSION: 2.68.0
+  AWS_CDK_PY_VERSION: 2.68.0
 
 jobs:
-  build:
+  build-image:
+    name: Build Docker Image
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-      security-events: write
-    outputs:
-      image: ${{ steps.image.outputs.image }}
-      digest: ${{ steps.build.outputs.digest }}
+    env:
+      CI_COMMIT_REF_NAME: ${{ github.ref_name }}
+      CI_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      CI_PROJECT_DIR: ${{ github.workspace }}
+      CI_REGISTRY_IMAGE: ghcr.io/${{ github.repository }}
     steps:
-      - name: Checkout
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set image tag
-        id: image
+      - name: Set TAG variable
+        id: vars
         run: |
-          if [ "${{ github.ref }}" = "refs/heads/${{ github.event.repository.default_branch }}" ]; then
-            echo "image=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest" >> $GITHUB_OUTPUT
+          if [ "${{ env.CI_COMMIT_REF_NAME }}" == "${{ env.CI_DEFAULT_BRANCH }}" ]; then
+            echo "TAG=latest" >> $GITHUB_ENV
           else
-            echo "image=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.head_ref || github.ref_name }}" >> $GITHUB_OUTPUT
+            # GitLab's CI_COMMIT_REF_SLUG equivalent (replace slashes and uppercase)
+            slug=$(echo "${{ env.CI_COMMIT_REF_NAME }}" | tr '[:upper:]' '[:lower:]' | tr '/' '-')
+            echo "TAG=$slug" >> $GITHUB_ENV
           fi
 
-      - name: Build with Kaniko
-        id: build
-        uses: aevea/action-kaniko@master
+      - name: Build Image with Kaniko
+        uses: aevea/action-kaniko@v1
         with:
-          image: ${{ steps.image.outputs.image }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-          registry: ${{ env.REGISTRY }}
+          registry: ghcr.io
+          image: ${{ github.repository }}
+          tag: ${{ env.TAG }}
+          build_file: context/Dockerfile
+          context: ./context
+          args: |
+            AWS_CLI_VERSION=${{ env.AWS_CLI_VERSION }}
+            AWS_CDK_NPM_VERSION=${{ env.AWS_CDK_NPM_VERSION }}
+            AWS_CDK_PY_VERSION=${{ env.AWS_CDK_PY_VERSION }}
           cache: true
-          cache_repo: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/cache
-          context: context
-          build_args: |
-            AWS_CLI_VERSION=${{ vars.AWS_CLI_VERSION }}
-            AWS_CDK_NPM_VERSION=${{ vars.AWS_CDK_NPM_VERSION }}
-            AWS_CDK_PY_VERSION=${{ vars.AWS_CDK_PY_VERSION }}
 
-  security-scan:
+  container-scan:
+    name: GitHub Container Scan
     runs-on: ubuntu-latest
-    needs: build
-    permissions:
-      security-events: write
+    needs: build-image
+    env:
+      TAG: ${{ env.TAG }}
+      CI_REGISTRY_IMAGE: ghcr.io/${{ github.repository }}
     steps:
-      - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: ${{ needs.build.outputs.image }}
-          format: 'sarif'
-          output: 'trivy-results.sarif'
-
-      - name: Upload Trivy scan results
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: 'trivy-results.sarif'
-
-  dependency-scan:
-    runs-on: ubuntu-latest
-    permissions:
-      security-events: write
-    steps:
-      - name: Checkout
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Run dependency scan
-        uses: github/dependency-review-action@v4
-        if: github.event_name == 'pull_request'
+      - name: Run Trivy Container Scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.CI_REGISTRY_IMAGE }}:${{ env.TAG }}
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+
+  dependency-scan:
+    name: Dependency Scan
+    runs-on: ubuntu-latest
+    needs: build-image
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Dependency Review
+        uses: actions/dependency-review-action@v3
