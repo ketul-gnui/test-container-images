@@ -38,18 +38,20 @@ jobs:
           echo "tag=$TAG" >> $GITHUB_OUTPUT
 
       - name: Build Image with Kaniko
-        uses: aevea/action-kaniko@v0.14.0
+        uses: aevea/action-kaniko@master
         with:
           registry: ghcr.io
+          password: ${{ secrets.GITHUB_TOKEN }}
           image: ${{ github.repository }}
           tag: ${{ steps.set_tag.outputs.tag }}
           build_file: context/Dockerfile
-          context: ./context
-          args: |
-            AWS_CLI_VERSION=${{ env.AWS_CLI_VERSION }}
-            AWS_CDK_NPM_VERSION=${{ env.AWS_CDK_NPM_VERSION }}
-            AWS_CDK_PY_VERSION=${{ env.AWS_CDK_PY_VERSION }}
+          path: ./context
           cache: true
+          cache_registry: ${{ github.repository }}-cache
+          extra_args: |
+            --build-arg AWS_CLI_VERSION=${{ env.AWS_CLI_VERSION }}
+            --build-arg AWS_CDK_NPM_VERSION=${{ env.AWS_CDK_NPM_VERSION }}
+            --build-arg AWS_CDK_PY_VERSION=${{ env.AWS_CDK_PY_VERSION }}
 
   container-scan:
     name: GitHub Container Scan
